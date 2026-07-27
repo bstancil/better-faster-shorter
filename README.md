@@ -16,7 +16,7 @@ This is a very silly little utility that makes that easy. Install it, and your c
 
 - `⌘V` - paste.
 - `⌘⇧V` - paste without formatting. It already does this. Maybe you didn't know. If you didn't, excellent, you've now learned something that's way more useful than what this app does.
-- `⌘⌥V` FUN NEW THIS IS THE WHOLE APP - paste, but if you're pasting a url, it'll scrub all of that nonsense at the end.
+- `⌘⌥V` **FUN NEW THIS IS THE WHOLE APP** - paste, but if you're pasting a URL, it'll scrub all of that nonsense at the end.
 
 That's it. That's the whole thing. A third way to paste.
 
@@ -38,7 +38,7 @@ Oh, also - some other stuff at the end of a URL is generally preserved, like the
 
 ---
 
-(*This is the part the AI machine wrote. Oh, this, and all of the code, which I obviously haven't read. Install this at your own risk.*)
+(*This is the part the AI machine wrote. Oh, and all of the code, which I obviously haven't read. Install this at your own risk.*)
 
 ## How to install it
 
@@ -70,6 +70,6 @@ rm -rf ~/Applications/"Better, Faster, Shorter.app"
 
 ## Warnings and caveats
 
-- **⌘⌥V is Finder's "Move item here" shortcut.** _[I've certainly never used this shortcut before, but the AI machines are worried about it.]_ This app overrides it system-wide. If you use that, change the combo in `registerHotKey()` in [Sources/main.swift](Sources/main.swift) (e.g. add `shiftKey`).
+- **`⌘⌥V` is Finder's "Move item here" shortcut.** _[I've certainly never used this shortcut before, but the AI machines are worried about it.]_ This app overrides it system-wide. If you use that, change the combo in `registerHotKey()` in [Sources/main.swift](Sources/main.swift) (e.g. add `shiftKey`).
 - **It might not work with some apps.** Apps with non-standard paste handling (some terminals, VMs) may ignore the synthetic keystroke. _[But also, if you're pasting links in your terminal, it's probably fine if they're ugly. Just use `⌘V`.]_
 - **Rebuilds may reset the Accessibility grant.** `install.sh` signs with the first code-signing identity in your keychain, which keeps the permission stable across rebuilds. With no identity available it falls back to ad-hoc signing, and macOS ties the grant to the exact binary — after a rebuild, toggle the app off and on again in System Settings → Privacy & Security → Accessibility.
