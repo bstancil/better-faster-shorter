@@ -15,10 +15,10 @@ https://www.nytimes.com/2026/07/25/us/politics/some-article.html
 This is a very silly little utility that makes that easy. Install it, and your computer will do wonderous things:
 
 - `⌘V` - paste.
-- `⌘⇧V` - paste without formatting. It already does this. Maybe you didn't know. If you didn't, excellent, you've now learned something that's way more useful than what this app does.
-- `⌘⌥V` **FUN NEW THIS IS THE WHOLE APP** - paste, but if you're pasting a URL, it'll scrub all of that nonsense at the end.
+- `⌘⇧V` - paste without formatting. **BUT ALSO**, now, if you've copied a URL and use this shortcut, it'll paste the URL without all of that nonsense at the end.
+- `⌘⌥V`- a new paste shortcut that also pastes a clean URL. This exists in case you don't like this app hijacking the previous shortcut, and you want a new shortcut just for URLs. If you prefer that, you can disable the URL stuff for `⌘⇧V`, and just use the `⌘⌥V` shortcut.
 
-That's it. That's the whole thing. A third way to paste.
+Anyway, that's the whole thing. It's a special way to paste URLs.
 
 ## What it removes
 
@@ -64,12 +64,13 @@ rm -rf ~/Applications/"Better, Faster, Shorter.app"
 
 ## How it works
 
-- It registers `⌘⌥V` as a global hotkey (Carbon `RegisterEventHotKey`).
-- On press, if the clipboard is an http(s) URL: saves the clipboard, writes the cleaned URL, posts a synthetic ⌘V keystroke, then restores the original clipboard ~0.6 seconds later unless you've copied something else.
+- It registers `⌘⌥V` and `⌘⇧V` as global hotkeys (Carbon `RegisterEventHotKey`).
+- On press, if the clipboard is an http(s) URL: saves the clipboard, writes the cleaned URL, posts a synthetic keystroke — plain ⌘V for the ⌘⌥V hotkey; ⌘⇧V re-sends itself (briefly unregistering the hotkey so it doesn't catch its own keystroke), so the app you're pasting into still strips formatting like it always did — then restores the original clipboard ~0.6 seconds later unless you've copied something else.
 - Clipboard contents never leave your machine or get written to disk. There's no network access, and logging is off by default (a status-only debug log can be enabled in the source by setting `loggingEnabled = true`).
 
 ## Warnings and caveats
 
+- **`⌘⇧V` now takes a detour through this app.** It gets re-sent unchanged, so apps that use it (Chrome, Slack, etc.) behave exactly as before — cleaner URLs aside. If you'd rather it be left alone, set `interceptCmdShiftV = false` in [Sources/main.swift](Sources/main.swift) and reinstall. (Apps that put "Paste and Match Style" on `⌘⌥⇧V` instead, like Notes and TextEdit, never used `⌘⇧V` anyway — for those, you could also use `⌘⌥V`.)
 - **`⌘⌥V` is Finder's "Move item here" shortcut.** _[I've certainly never used this shortcut before, but the AI machines are worried about it.]_ This app overrides it system-wide. If you use that, change the combo in `registerHotKey()` in [Sources/main.swift](Sources/main.swift) (e.g. add `shiftKey`).
 - **It might not work with some apps.** Apps with non-standard paste handling (some terminals, VMs) may ignore the synthetic keystroke. _[But also, if you're pasting links in your terminal, it's probably fine if they're ugly. Just use `⌘V`.]_
 - **Rebuilds may reset the Accessibility grant.** `install.sh` signs with the first code-signing identity in your keychain, which keeps the permission stable across rebuilds. With no identity available it falls back to ad-hoc signing, and macOS ties the grant to the exact binary — after a rebuild, toggle the app off and on again in System Settings → Privacy & Security → Accessibility.

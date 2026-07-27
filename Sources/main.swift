@@ -55,15 +55,23 @@ func log(_ message: String) {
     }
 }
 
+// MARK: - Cmd+Shift+V
+//
+// Cmd+Shift+V is "paste without formatting" in most apps. When enabled, the
+// app intercepts it, cleans a copied URL exactly like Cmd+Opt+V does, then
+// re-sends Cmd+Shift+V so the paste itself still strips formatting. Flip to
+// false and rerun ./install.sh to leave Cmd+Shift+V alone.
+let interceptCmdShiftV = true
+
 // MARK: - Paste simulation
 
-func postCmdV() {
+func postPaste(_ flags: CGEventFlags) {
     guard let src = CGEventSource(stateID: .combinedSessionState) else {
         log("failed to create event source")
         return
     }
-    // Suppress the physically-held Cmd+Opt keys while the synthetic event
-    // posts; otherwise they merge in and the app receives Cmd+Opt+V.
+    // Suppress the physically-held hotkey modifiers while the synthetic event
+    // posts; otherwise they merge in and the app receives e.g. Cmd+Opt+V.
     src.setLocalEventsFilterDuringSuppressionState(
         [.permitLocalMouseEvents, .permitSystemDefinedEvents],
         state: .eventSuppressionStateSuppressionInterval
@@ -78,11 +86,11 @@ func postCmdV() {
         log("failed to create key events")
         return
     }
-    down.flags = .maskCommand
-    up.flags = .maskCommand
+    down.flags = flags
+    up.flags = flags
     down.post(tap: .cgAnnotatedSessionEventTap)
     up.post(tap: .cgAnnotatedSessionEventTap)
-    log("posted synthetic cmd+v")
+    log("posted synthetic paste (flags: \(flags.rawValue))")
 }
 
 func snapshotPasteboard(_ pb: NSPasteboard) -> [NSPasteboardItem] {
@@ -97,23 +105,69 @@ func snapshotPasteboard(_ pb: NSPasteboard) -> [NSPasteboardItem] {
     }
 }
 
-func handleHotKey() {
+// MARK: - Hotkeys
+
+let hotKeySignature = OSType(0x5550_4153) // 'UPAS'
+let cleanPasteID: UInt32 = 1 // Cmd+Opt+V
+let shiftPasteID: UInt32 = 2 // Cmd+Shift+V
+
+var cleanPasteHotKeyRef: EventHotKeyRef?
+var shiftPasteHotKeyRef: EventHotKeyRef?
+
+func registerShiftPasteHotKey() {
+    guard shiftPasteHotKeyRef == nil else { return }
+    let hotKeyID = EventHotKeyID(signature: hotKeySignature, id: shiftPasteID)
+    let status = RegisterEventHotKey(
+        UInt32(kVK_ANSI_V),
+        UInt32(cmdKey | shiftKey),
+        hotKeyID,
+        GetApplicationEventTarget(),
+        0,
+        &shiftPasteHotKeyRef
+    )
+    log("cmd+shift+v registration status: \(status) (0 = ok)")
+}
+
+func unregisterShiftPasteHotKey() {
+    guard let ref = shiftPasteHotKeyRef else { return }
+    UnregisterEventHotKey(ref)
+    shiftPasteHotKeyRef = nil
+}
+
+func handleHotKey(id: UInt32) {
     let trusted = AXIsProcessTrusted()
-    log("hotkey pressed (accessibility trusted: \(trusted))")
+    log("hotkey \(id == shiftPasteID ? "cmd+shift+v" : "cmd+opt+v") pressed (accessibility trusted: \(trusted))")
     if !trusted {
         // Don't prompt here — the launch-time prompt already covers it,
         // and re-prompting on every keypress is obnoxious.
         return
     }
+
+    // Cmd+Opt+V pastes as a plain Cmd+V. Cmd+Shift+V re-sends itself so the
+    // target app still strips formatting; the hotkey is unregistered around
+    // the synthetic keystroke so it can't re-trigger itself.
+    let post: () -> Void
+    if id == shiftPasteID {
+        post = {
+            unregisterShiftPasteHotKey()
+            postPaste([.maskCommand, .maskShift])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                registerShiftPasteHotKey()
+            }
+        }
+    } else {
+        post = { postPaste(.maskCommand) }
+    }
+
     let pb = NSPasteboard.general
     guard let text = pb.string(forType: .string) else {
-        postCmdV()
+        post()
         return
     }
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let cleaned = cleanURLString(trimmed), cleaned != trimmed else {
         // Not a URL, or nothing to strip: behave like a normal paste.
-        postCmdV()
+        post()
         return
     }
 
@@ -121,7 +175,7 @@ func handleHotKey() {
     pb.clearContents()
     pb.setString(cleaned, forType: .string)
     let temporaryChangeCount = pb.changeCount
-    postCmdV()
+    post()
     // Restore the original clipboard so plain Cmd+V still pastes the full URL.
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
         // Don't overwrite anything the user copied while the cleaned URL
@@ -135,35 +189,40 @@ func handleHotKey() {
 // MARK: - App
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var hotKeyRef: EventHotKeyRef?
-
     func applicationDidFinishLaunching(_: Notification) {
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         let trusted = AXIsProcessTrustedWithOptions(opts)
         log("launched (accessibility trusted: \(trusted))")
-        registerHotKey()
+        registerHotKeys()
     }
 
-    private func registerHotKey() {
+    private func registerHotKeys() {
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
             eventKind: UInt32(kEventHotKeyPressed)
         )
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ -> OSStatus in
-            handleHotKey()
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, _ -> OSStatus in
+            var hotKeyID = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                              EventParamType(typeEventHotKeyID), nil,
+                              MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
+            handleHotKey(id: hotKeyID.id)
             return noErr
         }, 1, &eventType, nil, nil)
 
-        let hotKeyID = EventHotKeyID(signature: OSType(0x5550_4153), id: 1) // 'UPAS'
+        let hotKeyID = EventHotKeyID(signature: hotKeySignature, id: cleanPasteID)
         let status = RegisterEventHotKey(
             UInt32(kVK_ANSI_V),
             UInt32(cmdKey | optionKey),
             hotKeyID,
             GetApplicationEventTarget(),
             0,
-            &hotKeyRef
+            &cleanPasteHotKeyRef
         )
-        log("hotkey registration status: \(status) (0 = ok)")
+        log("cmd+opt+v registration status: \(status) (0 = ok)")
+        if interceptCmdShiftV {
+            registerShiftPasteHotKey()
+        }
     }
 }
 
